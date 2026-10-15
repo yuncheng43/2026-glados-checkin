@@ -2,8 +2,10 @@ name: GLaDOS 2026 Checkin
 
 on:
   schedule:
-    # 北京时间 09:30（UTC 01:30）。一天一次即可，脚本会在失败时自动重试。
+    # 北京时间 09:30 与 21:30（UTC 01:30 / 13:30）。两次定时互为备份，
+    # 防止 GitHub schedule 高负载延迟导致当天漏签；脚本失败时也会自动重试。
     - cron: '30 1 * * *'
+    - cron: '30 13 * * *'
   workflow_dispatch:
     inputs:
       dispatch_source:
