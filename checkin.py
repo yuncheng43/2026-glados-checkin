@@ -215,6 +215,30 @@ def is_normal_checkin_result(result):
     return result.get('code') == 0
 
 
+def describe_checkin_failure(result):
+    """Turn GLaDOS auth errors into actionable, log-safe guidance."""
+    if not isinstance(result, dict):
+        return "网络请求失败：请检查网络或稍后重试"
+
+    message = str(result.get('message', '')).strip()
+    reason = str(result.get('reason', '')).strip().lower()
+    lowered = message.lower()
+
+    if reason == 'device-mismatch' or 'automated check-in detected' in lowered:
+        return (
+            "登录设备校验失败：请用当前浏览器重新登录 glados.cloud，"
+            "并把完整 Cookie 与同一浏览器的 User-Agent 分别更新到 "
+            "GLADOS_COOKIE 和 GLADOS_USER_AGENT"
+        )
+    if result.get('code') == -2 or '没有权限' in message:
+        return (
+            "Cookie 失效或被服务端注销（没有权限）：请重新登录 glados.cloud，"
+            "复制包含 gld:sess 与 gld:sess.sig 的完整 Cookie 更新 GLADOS_COOKIE；"
+            "若仍失败，请同步更新 GLADOS_USER_AGENT"
+        )
+    return message or "未知错误"
+
+
 def checkin_with_retry(client, attempts=3, delay_seconds=60):
     """Retry transient/unknown check-in failures without sending duplicate alerts."""
     attempts = max(1, attempts)
@@ -226,9 +250,7 @@ def checkin_with_retry(client, attempts=3, delay_seconds=60):
             return last_result, True
 
         if is_non_retryable_checkin_result(last_result):
-            message = last_result.get('message', '认证失败')
-            if last_result.get('reason') == 'device-mismatch':
-                message = '登录设备不匹配，请重新登录并更新完整 Cookie'
+            message = describe_checkin_failure(last_result)
             log(f"❌ 签到认证失败，不再重试: {message}")
             return last_result, False
 
@@ -500,7 +522,10 @@ def main():
         attempts = int(os.environ.get("CHECKIN_MAX_ATTEMPTS", "3"))
         delay_seconds = int(os.environ.get("CHECKIN_RETRY_DELAY_SECONDS", "60"))
         res, is_success = checkin_with_retry(g, attempts, delay_seconds)
-        msg = res.get('message', 'Failure') if res else "Network Error"
+        if is_success:
+            msg = res.get('message', 'Success') if res else "Success"
+        else:
+            msg = describe_checkin_failure(res)
 
         # 2. Get Info (Refresh data)
         g.get_status()

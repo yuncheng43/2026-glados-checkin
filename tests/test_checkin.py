@@ -88,6 +88,31 @@ class CheckinResultTests(unittest.TestCase):
         sleep.assert_not_called()
 
 
+class FailureDescriptionTests(unittest.TestCase):
+    def test_permission_failure_tells_user_to_update_cookie(self):
+        text = checkin.describe_checkin_failure({'code': -2, 'message': '没有权限'})
+
+        self.assertIn('GLADOS_COOKIE', text)
+        self.assertIn('gld:sess', text)
+
+    def test_device_mismatch_tells_user_to_update_user_agent(self):
+        text = checkin.describe_checkin_failure(
+            {'code': 4, 'reason': 'device-mismatch', 'message': 'denied'}
+        )
+
+        self.assertIn('GLADOS_USER_AGENT', text)
+
+    def test_automated_detection_is_treated_as_device_failure(self):
+        text = checkin.describe_checkin_failure(
+            {'code': 1, 'message': 'Automated check-in detected. Please sign in again.'}
+        )
+
+        self.assertIn('GLADOS_USER_AGENT', text)
+
+    def test_network_failure_is_reported(self):
+        self.assertIn('网络', checkin.describe_checkin_failure(None))
+
+
 class BrowserHeaderTests(unittest.TestCase):
     def test_custom_chrome_user_agent_builds_matching_client_hints(self):
         user_agent = (
