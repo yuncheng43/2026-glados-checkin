@@ -282,6 +282,7 @@ class GLaDOS:
 
     def req(self, method, path, data=None, form=False):
         """带自动域名切换的请求；form=True 时以表单提交（兑换接口要求）"""
+        auth_rejection = None
         for d in DOMAINS:
             try:
                 url = f"{d}{path}"
@@ -302,14 +303,22 @@ class GLaDOS:
                     resp = requests.post(url, headers=h, json=data, timeout=10)
 
                 if resp.status_code == 200:
+                    payload = resp.json()
+                    # 各域名可能由不同后端提供服务：某个域名拒绝会话时，
+                    # 换下一个域名再试，避免因为首选域名故障而误报 Cookie 失效。
+                    if isinstance(payload, dict) and payload.get('code') == -2:
+                        auth_rejection = payload
+                        if d != DOMAINS[-1]:
+                            log(f"⚠️ {d} 认证被拒绝，尝试下一个域名")
+                        continue
                     self.domain = d # Remember working domain
-                    return resp.json()
+                    return payload
                 log(f"⚠️ {d} 返回 HTTP {resp.status_code}")
             except (requests.RequestException, ValueError) as e:
                 # InvalidHeader and other request errors may embed Cookie values.
                 log(f"⚠️ {d} 请求失败: {type(e).__name__}")
                 continue
-        return None
+        return auth_rejection
 
     def get_status(self):
         """获取状态：天数、邮箱"""

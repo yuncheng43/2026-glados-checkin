@@ -369,5 +369,37 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(client_class.return_value.req.call_count, 2)
 
 
+class DomainFallbackTests(unittest.TestCase):
+    @mock.patch('checkin.log')
+    @mock.patch('checkin.requests.get')
+    def test_auth_rejection_on_first_domain_falls_back(self, request_get, log):
+        rejected = mock.Mock(status_code=200)
+        rejected.json.return_value = {'code': -2, 'message': '没有权限'}
+        accepted = mock.Mock(status_code=200)
+        accepted.json.return_value = {'code': 0, 'data': {}}
+        request_get.side_effect = [rejected, accepted]
+
+        client = checkin.GLaDOS('gld:sess=current; gld:sess.sig=signature')
+        result = client.req('GET', '/api/user/status')
+
+        self.assertEqual(result['code'], 0)
+        self.assertEqual(client.domain, checkin.DOMAINS[1])
+        self.assertEqual(request_get.call_count, 2)
+
+    @mock.patch('checkin.log')
+    @mock.patch('checkin.requests.get')
+    def test_all_domains_rejected_returns_auth_payload(self, request_get, log):
+        rejected = mock.Mock(status_code=200)
+        rejected.json.return_value = {'code': -2, 'message': '没有权限'}
+        request_get.return_value = rejected
+
+        result = checkin.GLaDOS(
+            'gld:sess=current; gld:sess.sig=signature'
+        ).req('GET', '/api/user/status')
+
+        self.assertEqual(result, {'code': -2, 'message': '没有权限'})
+        self.assertEqual(request_get.call_count, len(checkin.DOMAINS))
+
+
 if __name__ == '__main__':
     unittest.main()
