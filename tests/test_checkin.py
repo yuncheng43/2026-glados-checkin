@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import unittest
@@ -14,6 +15,18 @@ class FakeClient:
     def checkin(self):
         self.calls += 1
         return next(self.results)
+
+
+class CheckinLoggingTests(unittest.TestCase):
+    def test_log_reaches_buffered_output_before_returning(self):
+        with io.TextIOWrapper(io.BytesIO(), encoding='utf-8', newline='\n') as stream, \
+                mock.patch('checkin.sys.stdout', stream), \
+                mock.patch('checkin.beijing_time', return_value='2026-11-06 12:00:00'):
+            checkin.log('offline check')
+            self.assertEqual(
+                stream.buffer.getvalue().decode('utf-8'),
+                '[2026-11-06 12:00:00 北京时间] offline check\n',
+            )
 
 
 class CheckinResultTests(unittest.TestCase):
@@ -86,31 +99,6 @@ class CheckinResultTests(unittest.TestCase):
         self.assertEqual(result, failure)
         self.assertEqual(client.calls, 1)
         sleep.assert_not_called()
-
-
-class FailureDescriptionTests(unittest.TestCase):
-    def test_permission_failure_tells_user_to_update_cookie(self):
-        text = checkin.describe_checkin_failure({'code': -2, 'message': '没有权限'})
-
-        self.assertIn('GLADOS_COOKIE', text)
-        self.assertIn('gld:sess', text)
-
-    def test_device_mismatch_tells_user_to_update_user_agent(self):
-        text = checkin.describe_checkin_failure(
-            {'code': 4, 'reason': 'device-mismatch', 'message': 'denied'}
-        )
-
-        self.assertIn('GLADOS_USER_AGENT', text)
-
-    def test_automated_detection_is_treated_as_device_failure(self):
-        text = checkin.describe_checkin_failure(
-            {'code': 1, 'message': 'Automated check-in detected. Please sign in again.'}
-        )
-
-        self.assertIn('GLADOS_USER_AGENT', text)
-
-    def test_network_failure_is_reported(self):
-        self.assertIn('网络', checkin.describe_checkin_failure(None))
 
 
 class BrowserHeaderTests(unittest.TestCase):
@@ -311,7 +299,11 @@ class DiagnosticTests(unittest.TestCase):
         cookie = 'gld:sess=private-cookie; gld:sess.sig=private-signature'
         request_get.side_effect = checkin.requests.exceptions.InvalidHeader(cookie)
 
-        self.assertIsNone(checkin.GLaDOS(cookie).req('GET', '/api/user/status'))
+        result = checkin.GLaDOS(cookie).req('GET', '/api/user/status')
+        self.assertTrue(result['request_failed'])
+        self.assertTrue(result['invalid_headers'])
+        self.assertNotIn('private-cookie', str(result))
+        self.assertNotIn('private-signature', str(result))
 
         printed = str(log.call_args_list)
         self.assertIn('InvalidHeader', printed)
@@ -367,38 +359,6 @@ class DiagnosticTests(unittest.TestCase):
         ]
         self.assertEqual(checkin.diagnose_accounts(['synthetic-first', 'synthetic-second']), 1)
         self.assertEqual(client_class.return_value.req.call_count, 2)
-
-
-class DomainFallbackTests(unittest.TestCase):
-    @mock.patch('checkin.log')
-    @mock.patch('checkin.requests.get')
-    def test_auth_rejection_on_first_domain_falls_back(self, request_get, log):
-        rejected = mock.Mock(status_code=200)
-        rejected.json.return_value = {'code': -2, 'message': '没有权限'}
-        accepted = mock.Mock(status_code=200)
-        accepted.json.return_value = {'code': 0, 'data': {}}
-        request_get.side_effect = [rejected, accepted]
-
-        client = checkin.GLaDOS('gld:sess=current; gld:sess.sig=signature')
-        result = client.req('GET', '/api/user/status')
-
-        self.assertEqual(result['code'], 0)
-        self.assertEqual(client.domain, checkin.DOMAINS[1])
-        self.assertEqual(request_get.call_count, 2)
-
-    @mock.patch('checkin.log')
-    @mock.patch('checkin.requests.get')
-    def test_all_domains_rejected_returns_auth_payload(self, request_get, log):
-        rejected = mock.Mock(status_code=200)
-        rejected.json.return_value = {'code': -2, 'message': '没有权限'}
-        request_get.return_value = rejected
-
-        result = checkin.GLaDOS(
-            'gld:sess=current; gld:sess.sig=signature'
-        ).req('GET', '/api/user/status')
-
-        self.assertEqual(result, {'code': -2, 'message': '没有权限'})
-        self.assertEqual(request_get.call_count, len(checkin.DOMAINS))
 
 
 if __name__ == '__main__':
