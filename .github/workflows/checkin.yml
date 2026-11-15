@@ -2,10 +2,8 @@ name: GLaDOS 2026 Checkin
 
 on:
   schedule:
-    # 北京时间 09:30 与 21:30（UTC 01:30 / 13:30）。两次定时互为备份，
-    # 防止 GitHub schedule 高负载延迟导致当天漏签；脚本失败时也会自动重试。
+    # 北京时间 09:30（UTC 01:30）。一天一次即可，脚本会在失败时自动重试。
     - cron: '30 1 * * *'
-    - cron: '30 13 * * *'
   workflow_dispatch:
     inputs:
       dispatch_source:
@@ -18,6 +16,11 @@ on:
           - external
       diagnose_only:
         description: 只检查 Cookie 是否可读取账号状态，不签到、不兑换、不推送
+        required: false
+        default: false
+        type: boolean
+      notify_status_only:
+        description: 只读取账号状态与积分流水并发送通知（如 PushPlus），不发起签到请求、不自动兑换
         required: false
         default: false
         type: boolean
@@ -60,6 +63,7 @@ jobs:
           # Prefer the repository Variable; accept a same-named Secret for compatibility.
           GLADOS_USER_AGENT: ${{ vars.GLADOS_USER_AGENT || secrets.GLADOS_USER_AGENT }}
           CHECKIN_DIAGNOSTIC_ONLY: ${{ inputs.diagnose_only && 'true' || 'false' }}
+          CHECKIN_NOTIFY_STATUS_ONLY: ${{ inputs.notify_status_only && 'true' || 'false' }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
