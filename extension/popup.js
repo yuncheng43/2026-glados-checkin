@@ -71,11 +71,17 @@ async function refresh() {
     const today = new Date(Date.now() + (8 * 60 + new Date().getTimezoneOffset()) * 60000).toISOString().slice(0, 10);
     $('today').textContent = s.lastDoneDate === today ? t('todayDone') : t('todayPending');
   }
-  try {
-    const r = await fetch('https://glados.cloud/api/user/points', { credentials: 'include' });
-    if (r.ok) { const d = await r.json(); $('points').textContent = formatPoints(d.points ?? '?'); }
-    else $('points').textContent = t('loginRequired');
-  } catch (e) { $('points').textContent = '-'; }
+  for (const origin of ['https://glados.cloud', 'https://glados.rocks']) {
+    try {
+      const r = await fetch(origin + '/api/user/points', { credentials: 'include' });
+      const d = await r.json();
+      if (r.ok && d.code === 0) {
+        $('points').textContent = formatPoints(d.points ?? '?');
+        return;
+      }
+    } catch (e) { /* 尝试下一个域名 */ }
+  }
+  $('points').textContent = t('loginRequired');
 }
 document.getElementById('run').addEventListener('click', async (e) => {
   e.target.disabled = true; e.target.textContent = t('btnRunning');

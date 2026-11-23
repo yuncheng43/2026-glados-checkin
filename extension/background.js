@@ -39,6 +39,7 @@ async function readLedger(origin = ORIGIN) {
     const r = await fetch(origin + '/api/user/points', { credentials: 'include' });
     if (!r.ok) return null;
     const data = await r.json();
+    if (data.code !== 0) return null;
     const history = Array.isArray(data.history) ? data.history : (data.list || []);
     const today = bjToday();
     let todayGain = 0, todayCount = 0;
@@ -106,7 +107,15 @@ function notify(id, title, message) {
 async function runSlot(reason) {
   const s = await getState();
   const today = bjToday();
-  const ledger = await readLedger();
+  let ledger = null;
+  let origin = ORIGIN;
+  for (const candidate of [ORIGIN, ...FALLBACK_ORIGINS]) {
+    ledger = await readLedger(candidate);
+    if (ledger) {
+      origin = candidate;
+      break;
+    }
+  }
   if (!ledger) {
     notify('net', t('notifyNetTitle'), t('notifyNetMessage'));
     return;
@@ -117,7 +126,7 @@ async function runSlot(reason) {
     await setState({ lastDoneDate: today });
     return; // 今日已在别处入账（本地脚本/手动），扩展不开页
   }
-  chrome.tabs.create({ url: ORIGIN + '/console/checkin#glados-auto', active: false });
+  chrome.tabs.create({ url: origin + '/console/checkin#glados-auto', active: false });
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -151,7 +160,8 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       const ok = r.code === 0 || r.code === 1 || /repeats|observation logged/i.test(String(r.message || ''));
       if (ok) {
         await setState({ lastDoneDate: bjToday(), lastResult: r, lastRunAt: new Date().toISOString() });
-        const ledger = await readLedger();
+        const origin = sender.url ? new URL(sender.url).origin : ORIGIN;
+        const ledger = await readLedger(origin);
         if (ledger) { await advanceStreak(ledger); }
         await updateBadge();
         notify('done', t('notifyDoneTitle'), String(r.message || t('notifyDoneFallback')));
